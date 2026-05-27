@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Class Timetable - Computer Science Department">
+    <title>Class Timetable | Computer Science</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="header">
+        <div class="header-left">
+            <h1>📚 DIT Timetable</h1>
+            <p class="subtitle">SCHOOL OF TECHNOLOGY</p>
+        </div>
+        <div class="header-right">
+            <span id="repBadge" class="rep-badge" style="display:none;" title="Click to change password">
+            👑 <span id="repNameDisplay">REP</span>
+            </span>
+            <button id="loginBtn" class="btn btn-outline" onclick="showLoginModal()">🔐 Rep Login</button>
+            <button id="logoutBtn" class="btn btn-outline" style="display:none;" onclick="logout()">🚪 Sign Out</button>
+        </div>
+    </header>
+
+    <div class="status-bar">
+        <span id="lastUpdated" class="last-updated">🕐 Loading...</span>
+        <span id="viewMode" class="view-badge">👥 Public View</span>
+    </div>
+
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔐 Rep Login</h3>
+                <button class="close-btn" onclick="closeModal('loginModal')">✕</button>
+            </div>
+            <form onsubmit="handleLogin(event)" id="loginForm">
+                <div class="form-group">
+                    <label for="loginEmail">Email Address</label>
+                    <input type="email" id="loginEmail" placeholder="Enter your email" required autocomplete="email">
+                </div>
+                <div class="form-group">
+                    <label for="loginPassword">Password</label>
+                    <input type="password" id="loginPassword" placeholder="Enter your password" required autocomplete="current-password">
+                </div>
+                <div id="loginError" class="error-message"></div>
+                <button type="submit" class="btn btn-primary" id="loginSubmitBtn">🔓 Sign In</button>
+            </form>
+            <p class="auth-note">Only the class representative can edit</p>
+        </div>
+    </div>
+
+    <div id="passwordModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>🔑 Change Password</h3>
+                <button class="close-btn" onclick="closeModal('passwordModal')">✕</button>
+            </div>
+            <form onsubmit="handleChangePassword(event)">
+                <div class="form-group">
+                    <label for="currentPassword">Current Password</label>
+                    <input type="password" id="currentPassword" required>
+                </div>
+                <div class="form-group">
+                    <label for="newPassword">New Password (min 6 chars)</label>
+                    <input type="password" id="newPassword" required minlength="6">
+                </div>
+                <div class="form-group">
+                    <label for="confirmPassword">Confirm New Password</label>
+                    <input type="password" id="confirmPassword" required minlength="6">
+                </div>
+                <div id="passwordError" class="error-message"></div>
+                <div id="passwordSuccess" class="success-message"></div>
+                <button type="submit" class="btn btn-primary">💾 Change Password</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="editTitle">✏️ Edit Schedule</h3>
+                <button class="close-btn" onclick="closeModal('editModal')">✕</button>
+            </div>
+            <div class="form-group">
+                <label for="editDay">Day</label>
+                <input type="text" id="editDay" readonly>
+            </div>
+            <div class="form-group">
+                <label for="editTime">Time</label>
+                <input type="text" id="editTime" placeholder="e.g., 08:00 - 11:00" required>
+            </div>
+            <div class="form-group">
+                <label for="editCourse">Course Unit</label>
+                <input type="text" id="editCourse" placeholder="Course name" required>
+            </div>
+            <div class="form-row">
+                <div class="form-group">
+                    <label for="editVenue">Venue</label>
+                    <input type="text" id="editVenue" placeholder="e.g., TC 2-3-3">
+                </div>
+                <div class="form-group">
+                    <label for="editCode">Course Code</label>
+                    <input type="text" id="editCode" placeholder="e.g., STU 501">
+                </div>
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="saveCourse()">💾 Save Changes</button>
+                <button class="btn btn-danger" onclick="deleteCourse()" id="deleteBtn" style="display:none;">🗑️ Delete</button>
+            </div>
+            <div id="editError" class="error-message"></div>
+            <div id="editSuccess" class="success-message"></div>
+        </div>
+    </div>
+
+    <main class="timetable-wrapper">
+        <div class="timetable-container">
+            <table class="timetable" id="timetable">
+                <thead>
+                    <tr>
+                        <th>Time</th>
+                        <th>Monday</th>
+                        <th>Tuesday</th>
+                        <th>Wednesday</th>
+                        <th>Thursday</th>
+                        <th>Friday</th>
+                    </tr>
+                </thead>
+                <tbody id="timetableBody"></tbody>
+            </table>
+        </div>
+        <div id="loadingState" class="loading-state">
+            <div class="spinner"></div>
+            <p>Loading timetable...</p>
+        </div>
+        <div id="emptyState" class="empty-state" style="display:none;">
+            <p>📅 No classes scheduled yet.</p>
+            <p class="empty-hint">The class rep can add courses after signing in.</p>
+        </div>
+    </main>
+
+    <div id="notification" class="notification"></div>
+
+    <footer class="footer">
+        <p>📚 Class Timetable • Managed by Class Rep</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
