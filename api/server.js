@@ -3,7 +3,6 @@ const { MongoClient } = require('mongodb');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-require('dotenv').config();
 
 const app = express();
 
@@ -11,47 +10,51 @@ app.use(cors());
 app.use(express.json());
 
 const MONGODB_URI = process.env.MONGODB_URI;
-const JWT_SECRET = process.env.JWT_SECRET || 'timetable-jwt-secret-change-me-2026';
-const ALLOWED_EMAIL = (process.env.ALLOWED_EMAIL || 'vero@example.com').toLowerCase().trim();
-const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'timetable-jwt-secret-2026';
+const ALLOWED_EMAIL = (process.env.ALLOWED_EMAIL || 'bnd.developerz@gmail.com').toLowerCase().trim();
 
-if (!MONGODB_URI) {
-  console.error('❌ MONGODB_URI is required in .env file');
-  process.exit(1);
-}
-
+// MongoDB connection caching for Vercel serverless
 let cachedClient = null;
 let cachedDb = null;
 
 async function connectToDatabase() {
   if (cachedClient && cachedDb) {
-    return cachedDb;
+    try {
+      await cachedDb.command({ ping: 1 });
+      return cachedDb;
+    } catch (error) {
+      cachedClient = null;
+      cachedDb = null;
+    }
   }
+
   try {
-    console.log('🔄 Connecting to MongoDB...');
     const client = new MongoClient(MONGODB_URI, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 10000,
+      maxPoolSize: 1,
+      serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+      connectTimeoutMS: 5000,
     });
+
     await client.connect();
     const db = client.db('classroom_timetable');
-    await db.collection('users').createIndex({ email: 1 }, { unique: true });
-    await db.collection('timetables').createIndex({ type: 1 }, { unique: true });
+    
     cachedClient = client;
     cachedDb = db;
-    console.log('✅ Connected to MongoDB successfully');
+    
     return db;
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error.message);
+    console.error('MongoDB connection error:', error);
     throw error;
   }
 }
 
+// Initialize rep user
 async function initializeRepUser(db) {
   try {
     const usersCollection = db.collection('users');
     const existingUser = await usersCollection.findOne({ email: ALLOWED_EMAIL });
+    
     if (!existingUser) {
       const salt = await bcrypt.genSalt(10);
       const passwordHash = await bcrypt.hash('denver123', salt);
@@ -59,33 +62,17 @@ async function initializeRepUser(db) {
         email: ALLOWED_EMAIL,
         password: passwordHash,
         role: 'rep',
-        name: 'REP',
+        name: 'Vero',
         createdAt: new Date().toISOString()
       });
-      console.log('✅ Created rep user:', ALLOWED_EMAIL);
-      console.log('   Default password: denver123');
-    } else {
-      console.log('✅ Rep user already exists:', ALLOWED_EMAIL);
+      console.log('Created rep user:', ALLOWED_EMAIL);
     }
   } catch (error) {
-    console.error('❌ User initialization error:', error);
+    console.error('User init error:', error);
   }
 }
 
-let initialized = false;
-app.use(async (req, res, next) => {
-  if (!initialized) {
-    try {
-      const db = await connectToDatabase();
-      await initializeRepUser(db);
-      initialized = true;
-    } catch (error) {
-      console.error('Initialization error:', error);
-    }
-  }
-  next();
-});
-
+// Auth middleware
 function requireAuth(req, res, next) {
   const token = req.headers.authorization?.replace('Bearer ', '');
   if (!token) {
@@ -103,31 +90,37 @@ function requireAuth(req, res, next) {
   }
 }
 
-// Login
+// Routes
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
+    
     const userEmail = email.toLowerCase().trim();
     if (userEmail !== ALLOWED_EMAIL) {
       return res.status(403).json({ error: 'Only the class rep can login' });
     }
+    
     const db = await connectToDatabase();
     const user = await db.collection('users').findOne({ email: userEmail });
+    
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
+    
     const token = jwt.sign(
       { email: user.email, role: user.role, name: user.name },
       JWT_SECRET,
       { expiresIn: '24h' }
     );
+    
     res.json({ token, user: { email: user.email, name: user.name, role: user.role } });
   } catch (error) {
     console.error('Login error:', error);
@@ -135,12 +128,10 @@ app.post('/api/auth/login', async (req, res) => {
   }
 });
 
-// Verify token
 app.get('/api/auth/verify', requireAuth, (req, res) => {
   res.json({ valid: true, user: req.user });
 });
 
-// Change password
 app.put('/api/auth/change-password', requireAuth, async (req, res) => {
   try {
     const { currentPassword, newPassword } = req.body;
@@ -150,29 +141,32 @@ app.put('/api/auth/change-password', requireAuth, async (req, res) => {
     if (newPassword.length < 6) {
       return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
+    
     const db = await connectToDatabase();
     const user = await db.collection('users').findOne({ email: ALLOWED_EMAIL });
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) {
       return res.status(401).json({ error: 'Current password is incorrect' });
     }
+    
     const salt = await bcrypt.genSalt(10);
     const newHash = await bcrypt.hash(newPassword, salt);
     await db.collection('users').updateOne(
       { email: ALLOWED_EMAIL },
       { $set: { password: newHash, updatedAt: new Date().toISOString() } }
     );
+    
     res.json({ message: 'Password changed successfully' });
   } catch (error) {
     res.status(500).json({ error: 'Server error' });
   }
 });
 
-// Get timetable (PUBLIC)
 app.get('/api/timetable', async (req, res) => {
   try {
     const db = await connectToDatabase();
     const timetable = await db.collection('timetables').findOne({ type: 'current' });
+    
     if (!timetable) {
       return res.json({
         type: 'current',
@@ -200,6 +194,7 @@ app.get('/api/timetable', async (req, res) => {
         lastModifiedAt: new Date().toISOString()
       });
     }
+    
     res.json(timetable);
   } catch (error) {
     console.error('Get timetable error:', error);
@@ -207,20 +202,29 @@ app.get('/api/timetable', async (req, res) => {
   }
 });
 
-// Update timetable (REP ONLY)
 app.put('/api/timetable', requireAuth, async (req, res) => {
   try {
     const { schedule } = req.body;
     if (!schedule) {
       return res.status(400).json({ error: 'Schedule required' });
     }
+    
     const db = await connectToDatabase();
     const now = new Date().toISOString();
+    
     await db.collection('timetables').updateOne(
       { type: 'current' },
-      { $set: { schedule, lastModifiedBy: req.user.name || req.user.email, lastModifiedAt: now }, $setOnInsert: { createdAt: now } },
+      { 
+        $set: { 
+          schedule, 
+          lastModifiedBy: req.user.name || req.user.email, 
+          lastModifiedAt: now 
+        },
+        $setOnInsert: { createdAt: now }
+      },
       { upsert: true }
     );
+    
     res.json({ message: 'Timetable updated', lastModifiedAt: now });
   } catch (error) {
     console.error('Update error:', error);
@@ -228,23 +232,33 @@ app.put('/api/timetable', requireAuth, async (req, res) => {
   }
 });
 
-// Delete lesson (REP ONLY)
 app.delete('/api/timetable/lesson', requireAuth, async (req, res) => {
   try {
     const { day, courseIndex } = req.body;
     if (!day || courseIndex === undefined) {
       return res.status(400).json({ error: 'Day and index required' });
     }
+    
     const db = await connectToDatabase();
     const timetable = await db.collection('timetables').findOne({ type: 'current' });
+    
     if (!timetable?.schedule?.[day]?.[courseIndex]) {
       return res.status(404).json({ error: 'Lesson not found' });
     }
+    
     timetable.schedule[day].splice(courseIndex, 1);
+    
     await db.collection('timetables').updateOne(
       { type: 'current' },
-      { $set: { schedule: timetable.schedule, lastModifiedBy: req.user.name, lastModifiedAt: new Date().toISOString() } }
+      { 
+        $set: { 
+          schedule: timetable.schedule, 
+          lastModifiedBy: req.user.name, 
+          lastModifiedAt: new Date().toISOString() 
+        } 
+      }
     );
+    
     res.json({ message: 'Lesson deleted' });
   } catch (error) {
     console.error('Delete error:', error);
@@ -252,31 +266,29 @@ app.delete('/api/timetable/lesson', requireAuth, async (req, res) => {
   }
 });
 
-// Health check
 app.get('/api/health', async (req, res) => {
   try {
     const db = await connectToDatabase();
     await db.command({ ping: 1 });
     res.json({ status: 'ok', database: 'connected', allowedEmail: ALLOWED_EMAIL });
   } catch (error) {
-    res.status(500).json({ status: 'error', database: 'disconnected' });
+    res.status(500).json({ status: 'error', database: 'disconnected', error: error.message });
   }
 });
 
-// ============================================
-// START SERVER FOR LOCAL DEVELOPMENT
-// ============================================
-// Only listen on a port when running locally (not on Vercel)
-if (process.env.VERCEL !== '1') {
-  app.listen(PORT, () => {
-    console.log(`🚀 Server running at http://localhost:${PORT}`);
-    console.log(`📅 Timetable API: http://localhost:${PORT}/api/timetable`);
-    console.log(`❤️  Health check: http://localhost:${PORT}/api/health`);
-    console.log(`👤 Allowed email: ${ALLOWED_EMAIL}`);
-    console.log(`🔑 Default password: denver123`);
-    console.log(`\n✨ Open index.html in your browser to see the app!\n`);
-  });
-}
+// Initialize on first request
+let initialized = false;
+app.use(async (req, res, next) => {
+  if (!initialized) {
+    try {
+      const db = await connectToDatabase();
+      await initializeRepUser(db);
+      initialized = true;
+    } catch (error) {
+      console.error('Init error:', error);
+    }
+  }
+  next();
+});
 
-// Export for Vercel
 module.exports = app;
